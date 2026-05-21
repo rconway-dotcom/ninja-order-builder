@@ -1,12 +1,20 @@
-// background.js — MV3 service worker v1.4
-// Handles multi-brand OAuth tabs.
-// Each brand gets its own auth tab.
+// background.js — MV3 service worker v1.4.1
+// Persists auth tab IDs in storage so they survive service worker restarts.
 
-let authSessions = {}; // { transfers: { tabId, resolve, reject }, patches: { ... } }
+const PROXY_URL = 'https://ninja-order-builder.vercel.app';
+
+let authSessions = {};
+
+// Restore any pending auth tabs from storage on startup
+chrome.storage.local.get(['_pendingAuthTabs'], result => {
+  if (result._pendingAuthTabs) {
+    authSessions = result._pendingAuthTabs;
+  }
+});
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'startAuth') {
-    startAuth(msg.proxyUrl, msg.brand || 'transfers')
+    startAuth(msg.proxyUrl || PROXY_URL, msg.brand || 'transfers')
       .then(token  => sendResponse({ ok: true,  token }))
       .catch(error => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -17,21 +25,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
+function persistSessions() {
+  chrome.storage.local.set({ _pendingAuthTabs: authSessions });
+}
+
 function startAuth(proxyUrl, brand) {
   return new Promise((resolve, reject) => {
     const existing = authSessions[brand];
     if (existing?.tabId != null) {
-      chrome.tabs.update(existing.tabId, { active: true });
-      existing.resolve = resolve;
-      existing.reject  = reject;
+      chrome.tabs.update(existing.tabId, { active: true }, tab => {
+        if (chrome.runtime.lastError) {
+          // Tab no longer exists, create a new one
+          delete authSessions[brand];
+          persistSessions();
+          startAuth(proxyUrl, brand).then(resolve).catch(reject);
+        } else {
+          existing.resolve = resolve;
+          existing.reject  = reject;
+        }
+      });
       return;
     }
 
     authSessions[brand] = { tabId: null, resolve, reject };
 
-    // Pass brand as a query param so the proxy knows which store to auth against
     chrome.tabs.create({ url: `${proxyUrl}/api/auth/start?brand=${brand}` }, tab => {
       authSessions[brand].tabId = tab.id;
+      persistSessions();
     });
 
     setTimeout(() => {
@@ -47,10 +67,10 @@ function startAuth(proxyUrl, brand) {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== 'complete' || !tab.url) return;
 
-  // Find which brand this tab belongs to
+  // Check all pending sessions
   const brand = Object.keys(authSessions).find(k => authSessions[k]?.tabId === tabId);
-  if (!brand) return;
 
+  // Also check any tab navigating to /success even if we lost the session reference
   let url;
   try { url = new URL(tab.url); } catch { return; }
   if (!url.pathname.endsWith('/success')) return;
@@ -58,26 +78,45 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   const token = url.searchParams.get('token');
   const error = url.searchParams.get('error');
 
-  if (token) {
+  if (!token && !error) return;
+
+  // Decode brand from token if we lost the session
+  let activeBrand = brand;
+  if (!activeBrand && token) {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      activeBrand = payload.brand || 'transfers';
+    } catch {}
+  }
+
+  if (token && activeBrand) {
     chrome.storage.local.get(['sessions'], result => {
       const sessions = result.sessions || {};
-      sessions[brand] = token;
+      sessions[activeBrand] = token;
       chrome.storage.local.set({ sessions }, () => {
-        const resolve = authSessions[brand].resolve;
-        cleanupAuthTab(brand);
-        resolve(token);
+        // Close the tab
+        chrome.tabs.remove(tabId, () => {});
+        // Resolve the promise if we have it
+        if (authSessions[activeBrand]?.resolve) {
+          const resolve = authSessions[activeBrand].resolve;
+          cleanupAuthTab(activeBrand);
+          resolve(token);
+        }
       });
     });
-  } else {
+  } else if (error) {
     const errorMessages = {
       auth_failed:  'Authentication failed. Please try again.',
       not_staff:    "Your Shopify account doesn't have staff access.",
       server_error: 'Server error during sign-in. Please try again.',
     };
-    const msg    = errorMessages[error] || 'Sign-in failed. Please try again.';
-    const reject = authSessions[brand].reject;
-    cleanupAuthTab(brand);
-    reject(new Error(msg));
+    const msg = errorMessages[error] || 'Sign-in failed. Please try again.';
+    chrome.tabs.remove(tabId, () => {});
+    if (activeBrand && authSessions[activeBrand]?.reject) {
+      const reject = authSessions[activeBrand].reject;
+      cleanupAuthTab(activeBrand);
+      reject(new Error(msg));
+    }
   }
 });
 
@@ -92,8 +131,6 @@ chrome.tabs.onRemoved.addListener(tabId => {
 function cleanupAuthTab(brand) {
   const session = authSessions[brand];
   if (!session) return;
-  if (session.tabId != null) {
-    chrome.tabs.remove(session.tabId, () => {});
-  }
   delete authSessions[brand];
+  persistSessions();
 }
