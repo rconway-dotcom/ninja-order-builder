@@ -83,7 +83,6 @@ export default function handler(req, res) {
     <h1>Ninja Order Builder</h1>
     <div id="content"></div>
   </div>
-
   <script>
     const token   = ${JSON.stringify(token || null)};
     const errorMsg = ${JSON.stringify(errorMsg || null)};
@@ -101,20 +100,9 @@ export default function handler(req, res) {
         <p>You're signed in! This tab will close automatically.</p>
         <div class="status success"><span class="spinner"></span> Completing sign-in…</div>
       \`;
-
-      // Decode brand from token
-      let brand = 'transfers';
       try {
-        const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-        brand = payload.brand || 'transfers';
-      } catch {}
-
-      // Send token directly to extension
-      try {
-        chrome.runtime.sendMessage(EXTENSION_ID, { action: 'authComplete', token, brand }, response => {
-          if (chrome.runtime.lastError) {
-            console.log('sendMessage failed, falling back to storage:', chrome.runtime.lastError);
-          }
+        chrome.runtime.sendMessage(EXTENSION_ID, { action: 'authComplete', token }, response => {
+          if (chrome.runtime.lastError) console.log('sendMessage failed:', chrome.runtime.lastError);
           document.getElementById('content').innerHTML = \`
             <p>You're signed in!</p>
             <div class="status success">✓ Signed in — you can close this tab.</div>
@@ -122,7 +110,6 @@ export default function handler(req, res) {
           setTimeout(() => window.close(), 1500);
         });
       } catch(e) {
-        console.log('chrome.runtime not available:', e);
         setTimeout(() => window.close(), 2000);
       }
     } else {
