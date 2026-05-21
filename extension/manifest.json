@@ -1,18 +1,22 @@
 {
   "manifest_version": 3,
   "name": "Ninja Order Builder",
-  "version": "1.4.0",
+  "version": "1.3.0",
   "description": "Build Shopify draft orders from Ninja Transfers cart data.",
   "permissions": [
-    "storage"
+    "storage",
+    "tabs",
+    "scripting"
   ],
   "host_permissions": [
     "https://ninjatransfers.com/*",
-    "https://ninjapatches.com/*",
     "https://*.myshopify.com/*",
     "https://admin.shopify.com/*",
     "https://ninja-order-builder.vercel.app/*"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "Ninja Order Builder",
@@ -30,13 +34,5 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  },
-  "externally_connectable": {
-    "matches": [
-      "https://ninja-order-builder.vercel.app/*"
-    ]
-  },
-  "background": {
-    "service_worker": "background.js"
   }
 }

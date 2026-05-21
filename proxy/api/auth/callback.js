@@ -2,67 +2,52 @@
 import jwt from 'jsonwebtoken';
 
 export default async function handler(req, res) {
-  const { code, shop, error, state: brandState } = req.query;
-  const brand = brandState || 'transfers';
+  const { code, shop, error } = req.query;
+  const { SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET, SHOP_DOMAIN, JWT_SECRET, PROXY_URL } = process.env;
 
-  const { JWT_SECRET, PROXY_URL } = process.env;
-
-  const configs = {
-    transfers: {
-      clientId:     process.env.TRANSFERS_CLIENT_ID,
-      clientSecret: process.env.TRANSFERS_CLIENT_SECRET,
-      shopDomain:   process.env.TRANSFERS_SHOP_DOMAIN,
-    },
-    patches: {
-      clientId:     process.env.PATCHES_CLIENT_ID,
-      clientSecret: process.env.PATCHES_CLIENT_SECRET,
-      shopDomain:   process.env.PATCHES_SHOP_DOMAIN,
-    },
-  };
-
-  const config = configs[brand];
-
-  console.log('Callback hit:', { brand, shop, hasCode: !!code, error, expectedShop: config?.shopDomain });
+  console.log('Callback hit:', { shop, hasCode: !!code, error, SHOP_DOMAIN, hasClientId: !!SHOPIFY_CLIENT_ID });
 
   if (error) {
+    console.log('OAuth error:', error);
     return res.redirect(`${PROXY_URL}/success?error=${encodeURIComponent(error)}`);
   }
 
-  if (!config) {
-    return res.status(400).send(`Unknown brand: ${brand}`);
-  }
-
-  if (!shop || shop !== config.shopDomain) {
-    console.log('Shop mismatch:', shop, 'expected:', config.shopDomain);
-    return res.status(400).send(`Unauthorized store. Got: ${shop}, Expected: ${config.shopDomain}`);
+  if (!shop || shop !== SHOP_DOMAIN) {
+    console.log('Shop mismatch:', shop, 'expected:', SHOP_DOMAIN);
+    return res.status(400).send(`Unauthorized store. Got: ${shop}, Expected: ${SHOP_DOMAIN}`);
   }
 
   if (!code) {
     return res.status(400).send('Missing authorization code.');
   }
 
+  if (!SHOPIFY_CLIENT_ID || !SHOPIFY_CLIENT_SECRET) {
+    console.log('Missing credentials');
+    return res.status(500).send('Missing Shopify credentials in environment variables.');
+  }
+
   try {
-    const tokenRes = await fetch(`https://${config.shopDomain}/admin/oauth/access_token`, {
+    const tokenRes = await fetch(`https://${SHOP_DOMAIN}/admin/oauth/access_token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        client_id:     config.clientId,
-        client_secret: config.clientSecret,
+        client_id:     SHOPIFY_CLIENT_ID,
+        client_secret: SHOPIFY_CLIENT_SECRET,
         code,
       }),
     });
 
     const tokenText = await tokenRes.text();
-    console.log('Token response status:', tokenRes.status);
+    console.log('Token response status:', tokenRes.status, 'body:', tokenText);
 
     if (!tokenRes.ok) {
       return res.redirect(`${PROXY_URL}/success?error=auth_failed`);
     }
 
-    const tokenData        = JSON.parse(tokenText);
+    const tokenData = JSON.parse(tokenText);
     const { associated_user } = tokenData;
 
-    console.log('Associated user:', associated_user?.email);
+    console.log('Associated user:', associated_user);
 
     if (!associated_user) {
       return res.redirect(`${PROXY_URL}/success?error=not_staff`);
@@ -75,13 +60,12 @@ export default async function handler(req, res) {
         lastName:  associated_user.last_name,
         userId:    associated_user.id,
         isOwner:   associated_user.account_owner,
-        brand,
       },
       JWT_SECRET,
       { expiresIn: '8h' }
     );
 
-    console.log('Success for brand:', brand);
+    console.log('Success, redirecting to:', `${PROXY_URL}/success`);
     res.redirect(`${PROXY_URL}/success?token=${encodeURIComponent(sessionToken)}`);
 
   } catch (err) {

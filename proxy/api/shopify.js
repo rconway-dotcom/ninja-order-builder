@@ -1,62 +1,56 @@
 // /api/shopify.js
-// Routes Shopify API calls to the correct store based on brand.
-// Brand is read from the JWT and double-checked against the request body.
+// All Shopify API calls from the extension flow through here.
+// 1. Validates the rep's session JWT
+// 2. Gets/refreshes the app's own CCG token
+// 3. Forwards the request to Shopify
+// 4. On draft order creation, injects rep identity as metafields
 
 import jwt from 'jsonwebtoken';
 
-let _appTokens = {}; // { transfers: { token, expiry }, patches: { token, expiry } }
+// ─── CCG token cache (app-level, not per-user) ────────────────────────────
+// Serverless functions can be cold-started, so this is a best-effort cache.
+// The token will be re-fetched if the instance is cold or if it's expired.
+let _appToken = null;
+let _appTokenExpiry = 0;
 
-async function getAppToken(brand) {
-  const cached = _appTokens[brand];
-  if (cached?.token && Date.now() < cached.expiry - 60_000) return cached.token;
+async function getAppToken() {
+  if (_appToken && Date.now() < _appTokenExpiry - 60_000) return _appToken;
 
-  const configs = {
-    transfers: {
-      clientId:     process.env.TRANSFERS_CLIENT_ID,
-      clientSecret: process.env.TRANSFERS_CLIENT_SECRET,
-      shopDomain:   process.env.TRANSFERS_SHOP_DOMAIN,
-    },
-    patches: {
-      clientId:     process.env.PATCHES_CLIENT_ID,
-      clientSecret: process.env.PATCHES_CLIENT_SECRET,
-      shopDomain:   process.env.PATCHES_SHOP_DOMAIN,
-    },
-  };
-
-  const config = configs[brand];
-  if (!config) throw new Error(`Unknown brand: ${brand}`);
-
-  const res = await fetch(`https://${config.shopDomain}/admin/oauth/access_token`, {
+  const { SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET, SHOP_DOMAIN } = process.env;
+  const res = await fetch(`https://${SHOP_DOMAIN}/admin/oauth/access_token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      client_id:     config.clientId,
-      client_secret: config.clientSecret,
+      client_id:     SHOPIFY_CLIENT_ID,
+      client_secret: SHOPIFY_CLIENT_SECRET,
       grant_type:    'client_credentials',
     }),
   });
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Failed to get app token for ${brand}: ${res.status} ${body}`);
+    throw new Error(`Failed to get app token: ${res.status} ${body}`);
   }
 
   const data = await res.json();
-  _appTokens[brand] = {
-    token:  data.access_token,
-    expiry: Date.now() + (data.expires_in || 86400) * 1000,
-  };
-  return _appTokens[brand].token;
+  _appToken       = data.access_token;
+  _appTokenExpiry = Date.now() + (data.expires_in || 86400) * 1000;
+  return _appToken;
 }
 
+// ─── Handler ──────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
+  // CORS — Chrome extensions send cross-origin requests
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // Validate JWT
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // ── 1. Validate session JWT ─────────────────────────────────────────────
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Missing session token. Please sign in.' });
@@ -72,42 +66,52 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: msg, code: 'SESSION_EXPIRED' });
   }
 
-  // Brand from JWT — use this as the source of truth
-  const brand = rep.brand || 'transfers';
-
-  const shopDomains = {
-    transfers: process.env.TRANSFERS_SHOP_DOMAIN,
-    patches:   process.env.PATCHES_SHOP_DOMAIN,
-  };
-
-  const shopDomain = shopDomains[brand];
-  if (!shopDomain) return res.status(400).json({ error: `Unknown brand: ${brand}` });
-
+  // ── 2. Parse request ────────────────────────────────────────────────────
   const { path, method = 'GET', body } = req.body || {};
   if (!path) return res.status(400).json({ error: 'Missing path' });
 
-  const targetUrl = `https://${shopDomain}${path}`;
+  // Only allow requests to the configured store
+  const { SHOP_DOMAIN } = process.env;
+  const targetUrl = `https://${SHOP_DOMAIN}${path}`;
 
-  // Inject rep metafields on draft order creation
+  // ── 3. Inject rep metafields on draft order creation ────────────────────
   let requestBody = body;
-  if (method === 'POST' && path.includes('/draft_orders') && body?.draft_order) {
+  const isDraftOrderCreate = method === 'POST' && path.includes('/draft_orders') && body?.draft_order;
+
+  if (isDraftOrderCreate) {
     requestBody = {
       ...body,
       draft_order: {
         ...body.draft_order,
         metafields: [
           ...(body.draft_order.metafields || []),
-          { namespace: 'ninja_order_builder', key: 'rep_email',  value: rep.email,                              type: 'single_line_text_field' },
-          { namespace: 'ninja_order_builder', key: 'rep_name',   value: `${rep.firstName} ${rep.lastName}`.trim(), type: 'single_line_text_field' },
-          { namespace: 'ninja_order_builder', key: 'brand',      value: brand,                                  type: 'single_line_text_field' },
-          { namespace: 'ninja_order_builder', key: 'built_at',   value: new Date().toISOString(),               type: 'single_line_text_field' },
+          {
+            namespace: 'ninja_order_builder',
+            key:       'rep_email',
+            value:     rep.email,
+            type:      'single_line_text_field',
+          },
+          {
+            namespace: 'ninja_order_builder',
+            key:       'rep_name',
+            value:     `${rep.firstName} ${rep.lastName}`.trim(),
+            type:      'single_line_text_field',
+          },
+          {
+            namespace: 'ninja_order_builder',
+            key:       'built_at',
+            value:     new Date().toISOString(),
+            type:      'single_line_text_field',
+          },
         ],
       },
     };
   }
 
+  // ── 4. Forward to Shopify ───────────────────────────────────────────────
   try {
-    const appToken = await getAppToken(brand);
+    const appToken = await getAppToken();
+
     const shopifyRes = await fetch(targetUrl, {
       method,
       headers: {
@@ -116,8 +120,10 @@ export default async function handler(req, res) {
       },
       body: requestBody ? JSON.stringify(requestBody) : undefined,
     });
+
     const data = await shopifyRes.json();
     return res.status(shopifyRes.status).json(data);
+
   } catch (err) {
     console.error('Shopify proxy error:', err);
     return res.status(500).json({ error: `Proxy error: ${err.message}` });
