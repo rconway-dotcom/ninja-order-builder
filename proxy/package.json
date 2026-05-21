@@ -1,0 +1,9 @@
+{
+  "name": "ninja-order-builder-proxy",
+  "version": "1.0.0",
+  "description": "Vercel proxy for Ninja Order Builder Chrome extension",
+  "private": true,
+  "dependencies": {
+    "jsonwebtoken": "^9.0.2"
+  }
+}

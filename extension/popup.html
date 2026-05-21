@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Ninja Order Builder</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="pop-header">
+    <div class="pop-header__brand">
+      <div class="pop-header__mascot"></div>
+      <div>
+        <div class="pop-header__title">Order Builder</div>
+        <div class="pop-header__sub">Ninja Transfers · Shopify</div>
+      </div>
+    </div>
+    <div class="pop-header__actions" id="headerActions">
+      <!-- populated by JS: theme toggle, refresh, settings -->
+    </div>
+  </header>
+
+  <nav class="pop-stepper" id="stepperNav" aria-label="Order steps">
+    <!-- populated by JS -->
+  </nav>
+
+  <main class="pop-content" id="mainContent">
+    <!-- populated by JS -->
+    <div class="loading-row"><div class="spinner"></div> Loading…</div>
+  </main>
+
+  <footer class="pop-footer" id="mainFooter">
+    <!-- populated by JS -->
+  </footer>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

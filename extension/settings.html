@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Ninja Order Builder — Settings</title>
+  <link rel="stylesheet" href="settings.css" />
+</head>
+<body>
+  <div class="set-shell">
+    <header class="set-header">
+      <div class="set-header__brand">
+        <div class="set-header__mascot"></div>
+        <div class="set-header__titles">
+          <div class="set-header__title">Ninja Order Builder</div>
+          <div class="set-header__sub">v1.3 · Staff-gated via Shopify OAuth</div>
+        </div>
+      </div>
+      <div class="set-header__right">
+        <div class="set-header__pill" id="connectionPill">
+          <span id="connectionPillIcon"></span>
+          <span id="connectionPillText">Checking…</span>
+        </div>
+        <div class="theme-toggle" id="themeToggle" role="group" aria-label="Theme"></div>
+      </div>
+    </header>
+
+    <div class="set-body">
+      <!-- LEFT: Session status -->
+      <section class="set-card">
+        <div class="set-card__head">
+          <div class="set-card__title">Your Session</div>
+          <div class="set-card__sub">Sign in with your Ninja Transfers Shopify staff account.</div>
+        </div>
+
+        <div id="sessionInfo" style="display:flex;flex-direction:column;gap:12px">
+          <div class="loading-row" style="padding:12px 0"><div class="spinner"></div> Loading…</div>
+        </div>
+
+        <div class="set-actions" id="sessionActions" style="display:none">
+          <button class="btn btn--primary" id="btnSignIn">Sign in with Shopify</button>
+          <button class="btn btn--ghost"   id="btnSignOut" style="display:none">Sign out</button>
+        </div>
+
+        <div class="set-status" id="statusBar"></div>
+      </section>
+
+      <!-- RIGHT: How it works -->
+      <section class="set-card">
+        <div class="set-card__head">
+          <div class="set-card__title">How access works</div>
+          <div class="set-card__sub">No credentials to manage — access is tied to your Shopify staff account.</div>
+        </div>
+        <div class="guide-list">
+          <div class="guide-step">
+            <div class="guide-step__n">1</div>
+            <div class="guide-step__body">Click <strong>Sign in with Shopify</strong>. A tab opens to your store's login.</div>
+          </div>
+          <div class="guide-step">
+            <div class="guide-step__n">2</div>
+            <div class="guide-step__body">Log in with your <strong>Ninja Transfers staff account</strong>. The tab closes automatically.</div>
+          </div>
+          <div class="guide-step">
+            <div class="guide-step__n">3</div>
+            <div class="guide-step__body">You're in. Sessions last <strong>8 hours</strong> — you'll be asked to sign in again the next day.</div>
+          </div>
+          <div class="guide-step">
+            <div class="guide-step__n">4</div>
+            <div class="guide-step__body">Every draft order you build is <strong>stamped with your name and email</strong> as a Shopify metafield — full audit trail, zero extra work.</div>
+          </div>
+          <div class="guide-step">
+            <div class="guide-step__n">5</div>
+            <div class="guide-step__body">To revoke someone's access, just <strong>remove their staff account</strong> in Shopify Admin. No extension changes needed.</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="settings.js"></script>
+</body>
+</html>
