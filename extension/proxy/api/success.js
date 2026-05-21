@@ -40,12 +40,7 @@ export default function handler(req, res) {
       text-align: center;
       box-shadow: 0 4px 24px rgba(43,43,43,0.08);
     }
-    .logo {
-      width: 72px;
-      height: 72px;
-      margin: 0 auto 16px;
-      display: block;
-    }
+    .logo { width: 72px; height: 72px; margin: 0 auto 16px; display: block; }
     h1 { font-size: 22px; font-weight: 800; margin-bottom: 8px; letter-spacing: -0.01em; }
     p { font-size: 14px; color: #5A5B60; line-height: 1.6; }
     .status { margin-top: 16px; font-size: 13px; font-weight: 600; }
@@ -55,53 +50,44 @@ export default function handler(req, res) {
     .steps { display: flex; flex-direction: column; gap: 12px; text-align: left; }
     .step { display: flex; align-items: flex-start; gap: 12px; }
     .step-num {
-      width: 24px; height: 24px;
-      border-radius: 50%;
-      background: rgba(1,154,255,0.1);
-      color: #019AFF;
-      font-size: 11px;
-      font-weight: 800;
+      width: 24px; height: 24px; border-radius: 50%;
+      background: rgba(1,154,255,0.1); color: #019AFF;
+      font-size: 11px; font-weight: 800;
       display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0;
-      margin-top: 1px;
+      flex-shrink: 0; margin-top: 1px;
     }
     .step-text { font-size: 13px; color: #5A5B60; line-height: 1.5; }
     .step-text strong { color: #2B2B2B; font-weight: 600; }
     .download-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      margin-top: 24px;
-      background: #019AFF;
-      color: #fff;
-      font-family: inherit;
-      font-size: 14px;
-      font-weight: 700;
-      padding: 12px 24px;
-      border-radius: 12px;
-      text-decoration: none;
+      display: inline-flex; align-items: center; gap: 8px;
+      margin-top: 24px; background: #019AFF; color: #fff;
+      font-family: inherit; font-size: 14px; font-weight: 700;
+      padding: 12px 24px; border-radius: 12px; text-decoration: none;
       transition: background 150ms ease;
     }
     .download-btn:hover { background: #0089E5; }
     .download-btn svg { width: 16px; height: 16px; }
-    .install-hint {
-      margin-top: 10px;
-      font-size: 11px;
-      color: #9FA0A4;
-      line-height: 1.5;
+    .install-hint { margin-top: 10px; font-size: 11px; color: #9FA0A4; line-height: 1.5; }
+    .spinner {
+      display: inline-block; width: 18px; height: 18px;
+      border: 2.5px solid #E4E4E6; border-top-color: #019AFF;
+      border-radius: 50%; animation: spin 700ms linear infinite;
+      vertical-align: middle; margin-right: 6px;
     }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
-  <div class="card" id="card">
-    <img class="logo" src="https://raw.githubusercontent.com/rconway-dotcom/ninja-order-builder/main/extension/assets/mascot.png" alt="Ninja Order Builder" />
+  <div class="card">
+    <img class="logo" src="https://ninja-order-builder.vercel.app/api/mascot" alt="Ninja Order Builder" />
     <h1>Ninja Order Builder</h1>
     <div id="content"></div>
   </div>
 
   <script>
-    const token = ${JSON.stringify(token || null)};
+    const token   = ${JSON.stringify(token || null)};
     const errorMsg = ${JSON.stringify(errorMsg || null)};
+    const EXTENSION_ID = 'bchlgmdbehoeefkppjaponkpdllolhai';
     const isEmbedded = window.self !== window.top;
     const content = document.getElementById('content');
 
@@ -113,30 +99,41 @@ export default function handler(req, res) {
     } else if (token && !isEmbedded) {
       content.innerHTML = \`
         <p>You're signed in! This tab will close automatically.</p>
-        <div class="status success">✓ Signed in — returning to extension…</div>
+        <div class="status success"><span class="spinner"></span> Completing sign-in…</div>
       \`;
-      setTimeout(() => window.close(), 3000);
+
+      // Decode brand from token
+      let brand = 'transfers';
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        brand = payload.brand || 'transfers';
+      } catch {}
+
+      // Send token directly to extension
+      try {
+        chrome.runtime.sendMessage(EXTENSION_ID, { action: 'authComplete', token, brand }, response => {
+          if (chrome.runtime.lastError) {
+            console.log('sendMessage failed, falling back to storage:', chrome.runtime.lastError);
+          }
+          document.getElementById('content').innerHTML = \`
+            <p>You're signed in!</p>
+            <div class="status success">✓ Signed in — you can close this tab.</div>
+          \`;
+          setTimeout(() => window.close(), 1500);
+        });
+      } catch(e) {
+        console.log('chrome.runtime not available:', e);
+        setTimeout(() => window.close(), 2000);
+      }
     } else {
       content.innerHTML = \`
         <p>Use the <strong>Chrome extension</strong> to build draft orders directly from your Ninja Transfers cart.</p>
         <div class="divider"></div>
         <div class="steps">
-          <div class="step">
-            <div class="step-num">1</div>
-            <div class="step-text">Download and install the extension below.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">2</div>
-            <div class="step-text">Build your cart on <strong>ninjatransfers.com</strong> with the right products and artwork.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">3</div>
-            <div class="step-text">Click the <strong>Ninja Order Builder</strong> icon in your Chrome toolbar, sign in, and create a draft order.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">4</div>
-            <div class="step-text">Open the draft order here in Shopify and <strong>send the invoice</strong>.</div>
-          </div>
+          <div class="step"><div class="step-num">1</div><div class="step-text">Download and install the extension below.</div></div>
+          <div class="step"><div class="step-num">2</div><div class="step-text">Build your cart on <strong>ninjatransfers.com</strong> with the right products and artwork.</div></div>
+          <div class="step"><div class="step-num">3</div><div class="step-text">Click the <strong>Ninja Order Builder</strong> icon in your Chrome toolbar, sign in, and create a draft order.</div></div>
+          <div class="step"><div class="step-num">4</div><div class="step-text">Open the draft order here in Shopify and <strong>send the invoice</strong>.</div></div>
         </div>
         <a class="download-btn" href="https://github.com/rconway-dotcom/ninja-order-builder/raw/main/shuriken.zip" download>
           <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 16 16"><path d="M8 2v8M5 7l3 3 3-3M2 12v1a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-1"/></svg>
