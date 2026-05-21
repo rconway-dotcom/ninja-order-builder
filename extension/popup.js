@@ -65,9 +65,10 @@ let state = {
 
 // ─── Init ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
-  const stored = await chromeGet(['sessions', 'theme']);
+  const stored = await chromeGet(['sessions', 'theme', 'activeBrand']);
   state.theme    = stored.theme || 'light';
   state.sessions = stored.sessions || {};
+  if (stored.activeBrand) state.activeBrand = stored.activeBrand;
 
   // Decode rep info from stored tokens
   for (const [key, token] of Object.entries(state.sessions)) {
@@ -195,27 +196,23 @@ function renderSignIn(errorMsg) {
           ${I.alert} ${escapeHtml(errorMsg)}
         </div>` : ''}
       <div style="display:flex;gap:6px;width:100%;max-width:300px;">
-        <button class="btn ${state.activeBrand === 'transfers' ? 'btn--primary' : 'btn--ghost'}" id="btnBrandTransfers" style="flex:1;font-size:12px">
-          Transfers
-        </button>
-        <button class="btn ${state.activeBrand === 'patches' ? 'btn--primary' : 'btn--ghost'}" id="btnBrandPatches" style="flex:1;font-size:12px">
-          Patches
-        </button>
+        <button class="btn \${state.activeBrand === 'transfers' ? 'btn--primary' : 'btn--ghost'}" data-brand="transfers" style="flex:1;font-size:12px">Transfers</button>
+        <button class="btn \${state.activeBrand === 'patches' ? 'btn--primary' : 'btn--ghost'}" data-brand="patches" style="flex:1;font-size:12px">Patches</button>
       </div>
       <button class="btn btn--primary" id="btnSignIn" style="max-width:300px;width:100%">
-        ${I.signIn}<span>Sign in with ${brand().name}</span>
+        \${I.signIn}<span>Sign in with \${brand().name}</span>
       </button>
-      <div class="setup-meta">${I.lock} Verified against your ${brand().name} staff account</div>
+      <div class="setup-meta">\${I.lock} Verified against your \${brand().name} staff account</div>
     </div>
   `;
   document.getElementById('btnSignIn').addEventListener('click', startSignIn);
-  document.getElementById('btnBrandTransfers')?.addEventListener('click', () => {
-    state.activeBrand = 'transfers';
-    renderSignIn();
-  });
-  document.getElementById('btnBrandPatches')?.addEventListener('click', () => {
-    state.activeBrand = 'patches';
-    renderSignIn();
+  document.getElementById('btnSwitchBrand')?.addEventListener('click', switchBrand);
+  document.querySelectorAll('[data-brand]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.activeBrand = btn.dataset.brand;
+      chromeSet({ activeBrand: btn.dataset.brand });
+      renderSignIn();
+    });
   });
 }
 
@@ -264,6 +261,7 @@ async function signOut() {
 
 async function switchBrand() {
   state.activeBrand = state.activeBrand === 'transfers' ? 'patches' : 'transfers';
+  chromeSet({ activeBrand: state.activeBrand });
   state.cartItems   = [];
   state.rawCart     = null;
   state.step        = 1;
