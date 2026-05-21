@@ -1,106 +1,99 @@
-// background.js — MV3 service worker
-// Manages the Shopify OAuth flow for the popup.
-// Opens an auth tab, watches for the success redirect, extracts the JWT,
-// stores it, and notifies the popup — all without the popup staying open.
+// background.js — MV3 service worker v1.4
+// Handles multi-brand OAuth tabs.
+// Each brand gets its own auth tab.
 
-let authTabId   = null;
-let authResolve = null;
-let authReject  = null;
+let authSessions = {}; // { transfers: { tabId, resolve, reject }, patches: { ... } }
 
-// ─── Message handler ──────────────────────────────────────────────────────
-// Popup sends { action: 'startAuth' } when the rep clicks "Sign in with Shopify"
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'startAuth') {
-    startAuth(msg.proxyUrl)
+    startAuth(msg.proxyUrl, msg.brand || 'transfers')
       .then(token  => sendResponse({ ok: true,  token }))
       .catch(error => sendResponse({ ok: false, error: error.message }));
-    return true; // keep message channel open for async response
+    return true;
   }
-
   if (msg.action === 'signOut') {
-    chrome.storage.local.remove(['sessionToken'], () => sendResponse({ ok: true }));
+    sendResponse({ ok: true });
     return true;
   }
 });
 
-// ─── Start OAuth ──────────────────────────────────────────────────────────
-function startAuth(proxyUrl) {
+function startAuth(proxyUrl, brand) {
   return new Promise((resolve, reject) => {
-    // If there's already an auth tab open, focus it
-    if (authTabId !== null) {
-      chrome.tabs.update(authTabId, { active: true });
-      // Replace existing callbacks
-      authResolve = resolve;
-      authReject  = reject;
+    const existing = authSessions[brand];
+    if (existing?.tabId != null) {
+      chrome.tabs.update(existing.tabId, { active: true });
+      existing.resolve = resolve;
+      existing.reject  = reject;
       return;
     }
 
-    authResolve = resolve;
-    authReject  = reject;
+    authSessions[brand] = { tabId: null, resolve, reject };
 
-    chrome.tabs.create({ url: `${proxyUrl}/api/auth/start` }, tab => {
-      authTabId = tab.id;
+    // Pass brand as a query param so the proxy knows which store to auth against
+    chrome.tabs.create({ url: `${proxyUrl}/api/auth/start?brand=${brand}` }, tab => {
+      authSessions[brand].tabId = tab.id;
     });
 
-    // Timeout after 5 minutes
     setTimeout(() => {
-      if (authResolve) {
-        cleanupAuthTab();
-        authReject(new Error('Sign-in timed out. Please try again.'));
+      if (authSessions[brand]?.reject) {
+        const rej = authSessions[brand].reject;
+        cleanupAuthTab(brand);
+        rej(new Error('Sign-in timed out. Please try again.'));
       }
     }, 5 * 60 * 1000);
   });
 }
 
-// ─── Watch for the success redirect ──────────────────────────────────────
-// When Shopify redirects to /success?token=..., we grab the token here.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (tabId !== authTabId)              return;
-  if (changeInfo.status !== 'complete') return;
-  if (!tab.url)                         return;
+  if (changeInfo.status !== 'complete' || !tab.url) return;
+
+  // Find which brand this tab belongs to
+  const brand = Object.keys(authSessions).find(k => authSessions[k]?.tabId === tabId);
+  if (!brand) return;
 
   let url;
   try { url = new URL(tab.url); } catch { return; }
-
-  // Wait until we're on the /success page of the proxy
   if (!url.pathname.endsWith('/success')) return;
 
   const token = url.searchParams.get('token');
   const error = url.searchParams.get('error');
 
   if (token) {
-    // Store the JWT and resolve the promise
-    chrome.storage.local.set({ sessionToken: token }, () => {
-      const resolve = authResolve;
-      cleanupAuthTab();
-      resolve(token);
+    chrome.storage.local.get(['sessions'], result => {
+      const sessions = result.sessions || {};
+      sessions[brand] = token;
+      chrome.storage.local.set({ sessions }, () => {
+        const resolve = authSessions[brand].resolve;
+        cleanupAuthTab(brand);
+        resolve(token);
+      });
     });
   } else {
     const errorMessages = {
       auth_failed:  'Authentication failed. Please try again.',
-      not_staff:    'Your Shopify account doesn\'t have staff access.',
+      not_staff:    "Your Shopify account doesn't have staff access.",
       server_error: 'Server error during sign-in. Please try again.',
     };
-    const msg = errorMessages[error] || 'Sign-in failed. Please try again.';
-    const reject = authReject;
-    cleanupAuthTab();
+    const msg    = errorMessages[error] || 'Sign-in failed. Please try again.';
+    const reject = authSessions[brand].reject;
+    cleanupAuthTab(brand);
     reject(new Error(msg));
   }
 });
 
-// ─── Clean up if rep manually closes the auth tab ────────────────────────
 chrome.tabs.onRemoved.addListener(tabId => {
-  if (tabId !== authTabId) return;
-  const reject = authReject;
-  cleanupAuthTab();
+  const brand = Object.keys(authSessions).find(k => authSessions[k]?.tabId === tabId);
+  if (!brand) return;
+  const reject = authSessions[brand].reject;
+  cleanupAuthTab(brand);
   if (reject) reject(new Error('Sign-in cancelled.'));
 });
 
-function cleanupAuthTab() {
-  if (authTabId !== null) {
-    chrome.tabs.remove(authTabId, () => { /* ignore if already closed */ });
-    authTabId = null;
+function cleanupAuthTab(brand) {
+  const session = authSessions[brand];
+  if (!session) return;
+  if (session.tabId != null) {
+    chrome.tabs.remove(session.tabId, () => {});
   }
-  authResolve = null;
-  authReject  = null;
+  delete authSessions[brand];
 }
