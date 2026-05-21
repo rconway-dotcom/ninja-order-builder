@@ -19,6 +19,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(error => sendResponse({ ok: false, error: error.message }));
     return true;
   }
+
+  // Receive token directly from success page via chrome.runtime.sendMessage
+  if (msg.action === 'authComplete' && msg.token) {
+    const brand = msg.brand || 'transfers';
+    chrome.storage.local.get(['sessions'], result => {
+      const sessions = result.sessions || {};
+      sessions[brand] = msg.token;
+      chrome.storage.local.set({ sessions }, () => {
+        // Resolve any pending promise for this brand
+        if (authSessions[brand]?.resolve) {
+          const resolve = authSessions[brand].resolve;
+          cleanupAuthTab(brand);
+          resolve(msg.token);
+        }
+        sendResponse({ ok: true });
+      });
+    });
+    return true;
+  }
+
   if (msg.action === 'signOut') {
     sendResponse({ ok: true });
     return true;
