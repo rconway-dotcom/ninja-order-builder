@@ -196,13 +196,13 @@ function renderSignIn(errorMsg) {
           ${I.alert} ${escapeHtml(errorMsg)}
         </div>` : ''}
       <div style="display:flex;gap:6px;width:100%;max-width:300px;">
-        <button class="btn \${state.activeBrand === 'transfers' ? 'btn--primary' : 'btn--ghost'}" data-brand="transfers" style="flex:1;font-size:12px">Transfers</button>
-        <button class="btn \${state.activeBrand === 'patches' ? 'btn--primary' : 'btn--ghost'}" data-brand="patches" style="flex:1;font-size:12px">Patches</button>
+        <button class="btn ${state.activeBrand === 'transfers' ? 'btn--primary' : 'btn--ghost'}" data-brand="transfers" style="flex:1;font-size:12px">Transfers</button>
+        <button class="btn ${state.activeBrand === 'patches' ? 'btn--primary' : 'btn--ghost'}" data-brand="patches" style="flex:1;font-size:12px">Patches</button>
       </div>
       <button class="btn btn--primary" id="btnSignIn" style="max-width:300px;width:100%">
-        \${I.signIn}<span>Sign in with \${brand().name}</span>
+        ${I.signIn}<span>Sign in with ${brand().name}</span>
       </button>
-      <div class="setup-meta">\${I.lock} Verified against your \${brand().name} staff account</div>
+      <div class="setup-meta">${I.lock} Verified against your ${brand().name} staff account</div>
     </div>
   `;
   document.getElementById('btnSignIn').addEventListener('click', startSignIn);
