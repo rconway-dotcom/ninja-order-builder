@@ -4,7 +4,7 @@
     { "src": "/api/auth/start",    "dest": "/api/auth/start.js" },
     { "src": "/api/auth/callback", "dest": "/api/auth/callback.js" },
     { "src": "/api/shopify",       "dest": "/api/shopify.js" },
-    { "src": "/success",           "dest": "/public/success.html" },
-    { "src": "/",                  "dest": "/public/success.html" }
+    { "src": "/success",           "dest": "/api/success.js" },
+    { "src": "/",                  "dest": "/api/success.js" }
   ]
 }
