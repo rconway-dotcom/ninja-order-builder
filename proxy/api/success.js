@@ -35,12 +35,17 @@ export default function handler(req, res) {
       border: 1px solid #E4E4E6;
       border-radius: 16px;
       padding: 40px 36px;
-      max-width: 420px;
+      max-width: 440px;
       width: 100%;
       text-align: center;
       box-shadow: 0 4px 24px rgba(43,43,43,0.08);
     }
-    .mascot { font-size: 56px; margin-bottom: 16px; line-height: 1; }
+    .logo {
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 16px;
+      display: block;
+    }
     h1 { font-size: 22px; font-weight: 800; margin-bottom: 8px; letter-spacing: -0.01em; }
     p { font-size: 14px; color: #5A5B60; line-height: 1.6; }
     .status { margin-top: 16px; font-size: 13px; font-weight: 600; }
@@ -62,22 +67,34 @@ export default function handler(req, res) {
     }
     .step-text { font-size: 13px; color: #5A5B60; line-height: 1.5; }
     .step-text strong { color: #2B2B2B; font-weight: 600; }
-    .spinner {
-      display: inline-block;
-      width: 18px; height: 18px;
-      border: 2.5px solid #E4E4E6;
-      border-top-color: #019AFF;
-      border-radius: 50%;
-      animation: spin 700ms linear infinite;
-      vertical-align: middle;
-      margin-right: 6px;
+    .download-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 24px;
+      background: #019AFF;
+      color: #fff;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      padding: 12px 24px;
+      border-radius: 12px;
+      text-decoration: none;
+      transition: background 150ms ease;
     }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    .download-btn:hover { background: #0089E5; }
+    .download-btn svg { width: 16px; height: 16px; }
+    .install-hint {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #9FA0A4;
+      line-height: 1.5;
+    }
   </style>
 </head>
 <body>
   <div class="card" id="card">
-    <div class="mascot">🥷</div>
+    <img class="logo" src="https://raw.githubusercontent.com/rconway-dotcom/ninja-order-builder/main/extension/assets/mascot.png" alt="Ninja Order Builder" />
     <h1>Ninja Order Builder</h1>
     <div id="content"></div>
   </div>
@@ -94,35 +111,38 @@ export default function handler(req, res) {
         <div class="status error">✗ Sign-in failed</div>
       \`;
     } else if (token && !isEmbedded) {
-      // Opened by the Chrome extension — show success and close
       content.innerHTML = \`
         <p>You're signed in! This tab will close automatically.</p>
         <div class="status success">✓ Signed in — returning to extension…</div>
       \`;
       setTimeout(() => window.close(), 3000);
     } else {
-      // Embedded in Shopify admin or direct visit — show the how-to guide
       content.innerHTML = \`
         <p>Use the <strong>Chrome extension</strong> to build draft orders directly from your Ninja Transfers cart.</p>
         <div class="divider"></div>
         <div class="steps">
           <div class="step">
             <div class="step-num">1</div>
-            <div class="step-text">Build your cart on <strong>ninjatransfers.com</strong> with the right products and artwork.</div>
+            <div class="step-text">Download and install the extension below.</div>
           </div>
           <div class="step">
             <div class="step-num">2</div>
-            <div class="step-text">Click the <strong>Ninja Order Builder</strong> icon in your Chrome toolbar.</div>
+            <div class="step-text">Build your cart on <strong>ninjatransfers.com</strong> with the right products and artwork.</div>
           </div>
           <div class="step">
             <div class="step-num">3</div>
-            <div class="step-text">Search for a customer, review the order, and hit <strong>Create Draft Order</strong>.</div>
+            <div class="step-text">Click the <strong>Ninja Order Builder</strong> icon in your Chrome toolbar, sign in, and create a draft order.</div>
           </div>
           <div class="step">
             <div class="step-num">4</div>
             <div class="step-text">Open the draft order here in Shopify and <strong>send the invoice</strong>.</div>
           </div>
         </div>
+        <a class="download-btn" href="https://github.com/rconway-dotcom/ninja-order-builder/raw/main/shuriken.zip" download>
+          <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 16 16"><path d="M8 2v8M5 7l3 3 3-3M2 12v1a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-1"/></svg>
+          Download Shuriken
+        </a>
+        <div class="install-hint">Unzip and load via chrome://extensions → Developer mode → Load unpacked</div>
       \`;
     }
   </script>
