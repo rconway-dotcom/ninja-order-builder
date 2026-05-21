@@ -194,18 +194,29 @@ function renderSignIn(errorMsg) {
         <div style="background:var(--danger-bg);border:1px solid var(--danger);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--danger);font-weight:600;display:flex;align-items:center;gap:8px;width:100%;max-width:300px;">
           ${I.alert} ${escapeHtml(errorMsg)}
         </div>` : ''}
-      <button class="btn btn--primary" id="btnSignIn" style="max-width:260px;width:100%">
-        ${I.signIn}<span>Sign in with Shopify</span>
+      <div style="display:flex;gap:6px;width:100%;max-width:300px;">
+        <button class="btn ${state.activeBrand === 'transfers' ? 'btn--primary' : 'btn--ghost'}" id="btnBrandTransfers" style="flex:1;font-size:12px">
+          Transfers
+        </button>
+        <button class="btn ${state.activeBrand === 'patches' ? 'btn--primary' : 'btn--ghost'}" id="btnBrandPatches" style="flex:1;font-size:12px">
+          Patches
+        </button>
+      </div>
+      <button class="btn btn--primary" id="btnSignIn" style="max-width:300px;width:100%">
+        ${I.signIn}<span>Sign in with ${brand().name}</span>
       </button>
       <div class="setup-meta">${I.lock} Verified against your ${brand().name} staff account</div>
-      ${otherToken ? `
-        <div style="width:100%;max-width:300px;margin-top:4px">
-          ${renderBrandSwitcher()}
-        </div>` : ''}
     </div>
   `;
   document.getElementById('btnSignIn').addEventListener('click', startSignIn);
-  document.getElementById('btnSwitchBrand')?.addEventListener('click', switchBrand);
+  document.getElementById('btnBrandTransfers')?.addEventListener('click', () => {
+    state.activeBrand = 'transfers';
+    renderSignIn();
+  });
+  document.getElementById('btnBrandPatches')?.addEventListener('click', () => {
+    state.activeBrand = 'patches';
+    renderSignIn();
+  });
 }
 
 async function startSignIn() {
