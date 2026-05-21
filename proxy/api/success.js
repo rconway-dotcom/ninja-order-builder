@@ -94,7 +94,7 @@ export default function handler(req, res) {
 </head>
 <body>
   <div class="card" id="card">
-    <img class="logo" src="https://raw.githubusercontent.com/rconway-dotcom/ninja-order-builder/main/extension/assets/mascot.png" alt="Ninja Order Builder" />
+    <img class="logo" src="https://ninja-order-builder.vercel.app/api/mascot" alt="Ninja Order Builder" />
     <h1>Ninja Order Builder</h1>
     <div id="content"></div>
   </div>
