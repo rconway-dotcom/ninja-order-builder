@@ -586,8 +586,7 @@ async function createDraftOrder() {
       throw new Error(msgs);
     }
     const order = (await orderRes.json()).draft_order;
-    const _stored = await chromeGet(['shopDomain']);
-    const shopSlug = (_stored.shopDomain || '').replace('.myshopify.com', '');
+    const shopSlug = 'transferss';
     state.createdOrderUrl = `https://admin.shopify.com/store/${shopSlug}/draft_orders/${order.id}`;
     stepFlags.posting = true; updateProg();
 
