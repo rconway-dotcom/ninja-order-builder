@@ -228,7 +228,7 @@ async function fetchCart() {
 function parseCartItems(cart) {
   if (!cart?.items?.length) return [];
   return cart.items.map(item => {
-    const displayProps = (item.properties || []).filter(p =>
+    const displayProps = (Array.isArray(item.properties) ? item.properties : []).filter(p =>
       !p.name.startsWith('_cartImg') &&
       !p.name.startsWith('_discount_input') &&
       !p.name.startsWith('_discount_name') &&
@@ -249,7 +249,7 @@ function parseCartItems(cart) {
       image:             item.image,
       url:               item.url,
       properties:        displayProps,
-      allProperties:     item.properties || [],
+      allProperties:     Array.isArray(item.properties) ? item.properties : [],
     };
   });
 }
