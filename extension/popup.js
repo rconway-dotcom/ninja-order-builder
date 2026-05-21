@@ -228,7 +228,13 @@ async function fetchCart() {
 function parseCartItems(cart) {
   if (!cart?.items?.length) return [];
   return cart.items.map(item => {
-    const displayProps = (Array.isArray(item.properties) ? item.properties : []).filter(p =>
+    // Properties can be an array [{name,value}] or an object {key:value}
+    const toArray = p => Array.isArray(p)
+      ? p
+      : Object.entries(p || {}).map(([name, value]) => ({ name, value: String(value) }));
+
+    const allProps = toArray(item.properties);
+    const displayProps = allProps.filter(p =>
       !p.name.startsWith('_cartImg') &&
       !p.name.startsWith('_discount_input') &&
       !p.name.startsWith('_discount_name') &&
@@ -249,7 +255,7 @@ function parseCartItems(cart) {
       image:             item.image,
       url:               item.url,
       properties:        displayProps,
-      allProperties:     Array.isArray(item.properties) ? item.properties : [],
+      allProperties:     allProps,
     };
   });
 }
@@ -580,8 +586,8 @@ async function createDraftOrder() {
       throw new Error(msgs);
     }
     const order = (await orderRes.json()).draft_order;
-    const shopSlug = order.admin_graphql_api_id?.split('/')[4] ||
-      (await chromeGet(['shopDomain'])).shopDomain?.replace('.myshopify.com','') || '';
+    const _stored = await chromeGet(['shopDomain']);
+    const shopSlug = (_stored.shopDomain || '').replace('.myshopify.com', '');
     state.createdOrderUrl = `https://admin.shopify.com/store/${shopSlug}/draft_orders/${order.id}`;
     stepFlags.posting = true; updateProg();
 
