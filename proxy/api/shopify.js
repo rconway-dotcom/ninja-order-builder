@@ -17,7 +17,7 @@ const ALLOWED_ROUTES = [
 ];
 
 // ── Extension CORS origin ─────────────────────────────────────────────────
-const EXTENSION_ORIGIN = 'chrome-extension://bchlgmdbehoeefkppjaponkpdllolhai';
+const EXTENSION_ORIGIN = 'chrome-extension://pcboikbpgdnjokngeagkohpjjichfelf';
 
 // ── App token cache ───────────────────────────────────────────────────────
 let _appToken = null;
