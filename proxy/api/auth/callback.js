@@ -2,33 +2,48 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
+// In-memory exchange store — short-lived codes, one-time use
+// Vercel keeps this warm between requests on the same instance
+const exchangeStore = new Map();
+
+// Clean up expired codes every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of exchangeStore) {
+    if (val.expiry < now) exchangeStore.delete(key);
+  }
+}, 5 * 60 * 1000);
+
+// Export store so exchange.js can access it
+export { exchangeStore };
+
 export default async function handler(req, res) {
   const { code, shop, error, state: returnedState } = req.query;
   const { SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET, SHOP_DOMAIN, JWT_SECRET, PROXY_URL } = process.env;
 
-  // No-store to prevent any caching of this sensitive endpoint
   res.setHeader('Cache-Control', 'no-store');
 
   if (error) {
     return res.redirect(`${PROXY_URL}/success?error=${encodeURIComponent(error)}`);
   }
 
-  // Verify signed OAuth state to prevent CSRF
+  // Verify signed OAuth state
   if (!returnedState) {
     return res.status(400).send('Missing state parameter.');
   }
   const [nonce, sig] = returnedState.split('.');
+  if (!nonce || !sig) return res.status(400).send('Malformed state.');
   const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(nonce).digest('hex');
-  if (!crypto.timingSafeEqual(Buffer.from(sig || ''), Buffer.from(expectedSig))) {
-    return res.status(400).send('Invalid state — possible CSRF attempt.');
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) {
+      return res.status(400).send('Invalid state.');
+    }
+  } catch {
+    return res.status(400).send('Invalid state.');
   }
 
-  if (!shop || shop !== SHOP_DOMAIN) {
-    return res.status(400).send('Unauthorized store.');
-  }
-  if (!code) {
-    return res.status(400).send('Missing authorization code.');
-  }
+  if (!shop || shop !== SHOP_DOMAIN) return res.status(400).send('Unauthorized store.');
+  if (!code) return res.status(400).send('Missing authorization code.');
 
   try {
     const tokenRes = await fetch(`https://${SHOP_DOMAIN}/admin/oauth/access_token`, {
@@ -42,20 +57,18 @@ export default async function handler(req, res) {
     });
 
     if (!tokenRes.ok) {
-      // Log status only — never log token response body
       console.error('Token exchange failed:', tokenRes.status);
       return res.redirect(`${PROXY_URL}/success?error=auth_failed`);
     }
 
     const tokenData = await tokenRes.json();
     const { associated_user } = tokenData;
-    // NEVER log tokenData — it contains access_token
+    // NEVER log tokenData — contains access_token
 
     if (!associated_user) {
       return res.redirect(`${PROXY_URL}/success?error=not_staff`);
     }
 
-    // Issue our own short-lived JWT — does NOT include the Shopify access token
     const sessionToken = jwt.sign(
       {
         email:     associated_user.email,
@@ -68,17 +81,17 @@ export default async function handler(req, res) {
       { expiresIn: '8h' }
     );
 
-    // Pass token via a one-time code stored server-side rather than in the URL.
-    // We use a signed short-lived exchange token instead of the full JWT in the URL.
+    // Store session token keyed by a one-time exchange code
     const exchangeCode = crypto.randomBytes(24).toString('hex');
-    const exchangePayload = jwt.sign({ sessionToken, exchangeCode }, JWT_SECRET, { expiresIn: '60s' });
+    exchangeStore.set(exchangeCode, {
+      sessionToken,
+      expiry: Date.now() + 60_000, // 60 seconds to complete exchange
+    });
 
-    // Store exchange token in a secure cookie — extension picks it up via postMessage
-    res.setHeader('Set-Cookie', `exchange_token=${exchangePayload}; HttpOnly; Secure; SameSite=None; Max-Age=60; Path=/`);
     res.redirect(`${PROXY_URL}/success?code=${exchangeCode}`);
 
   } catch (err) {
-    console.error('Auth callback error (no token data):', err.message);
+    console.error('Auth callback error:', err.message);
     res.redirect(`${PROXY_URL}/success?error=server_error`);
   }
 }
