@@ -37,6 +37,7 @@ let state = {
   selectedCustomer: null,
   newCustomer: null,
   note: '',
+  isReprint: false,
   sessionToken: null,  // JWT from proxy — identifies the rep
   repInfo: null,       // { email, firstName, lastName } decoded from JWT
   createdOrderUrl: null,
@@ -494,12 +495,20 @@ function renderReviewPanel() {
         ${repHtml}
       </div>
     </div>
+    <div class="review-section" style="flex-direction:row;align-items:center;justify-content:space-between">
+      <div class="review-section__label" style="margin-bottom:0">Reprint order</div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="reprintCheck" ${state.isReprint ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer" />
+        <span style="font-size:12px;color:var(--ink-muted)">Adds "Reprint Order" tag</span>
+      </label>
+    </div>
     <div class="review-section">
       <div class="review-section__label">Internal note <span class="normal">· optional</span></div>
       <textarea class="textarea" id="orderNote" placeholder="Special instructions, etc.">${escapeHtml(state.note)}</textarea>
     </div>
     <div class="note-card">${I.info}<div>This creates a <strong>draft order</strong> in Shopify — nothing is charged. Open it after to send the invoice.</div></div>`;
   document.getElementById('orderNote').addEventListener('input', e => { state.note = e.target.value; });
+  document.getElementById('reprintCheck').addEventListener('change', e => { state.isReprint = e.target.checked; });
   renderReviewFooter();
 }
 
@@ -572,7 +581,7 @@ async function createDraftOrder() {
             customer: { id: customerId },
             use_customer_default_address: true,
             note: state.note || undefined,
-            tags: 'rep-built',
+            tags: state.isReprint ? 'rep-built,Reprint Order' : 'rep-built',
             // Metafields are injected server-side by the proxy
           },
         }),
@@ -653,7 +662,7 @@ function renderSuccess(order) {
       </div>
     </div>`;
   document.getElementById('btnReset').addEventListener('click', () => {
-    state = { ...state, step:1, cartItems:[], rawCart:null, selectedCustomer:null, newCustomer:null, note:'', createdOrderUrl:null };
+    state = { ...state, step:1, cartItems:[], rawCart:null, selectedCustomer:null, newCustomer:null, note:'', isReprint:false, createdOrderUrl:null };
     document.getElementById('mainFooter').style.display = 'flex';
     renderStepper();
     renderFooterFor(1);
