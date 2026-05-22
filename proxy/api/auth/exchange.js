@@ -2,7 +2,7 @@
 // Retrieves and deletes the session token from Upstash Redis.
 // One-time use — code is deleted immediately after retrieval.
 
-const EXTENSION_ORIGIN = 'chrome-extension://pcboikbpgdnjokngeagkohpjjichfelf';
+const EXTENSION_ORIGIN = 'chrome-extension://llafdnpaejgacpeemenpcjmlfbkmclfm';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');

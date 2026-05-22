@@ -78,7 +78,7 @@ export default function handler(req, res) {
     const code      = ${JSON.stringify(code || null)};
     const errorMsg  = ${JSON.stringify(errorMsg || null)};
     const PROXY_URL = ${JSON.stringify(PROXY_URL || '')};
-    const EXTENSION_ID = 'pcboikbpgdnjokngeagkohpjjichfelf';
+    const EXTENSION_ID = 'llafdnpaejgacpeemenpcjmlfbkmclfm';
     const isEmbedded   = window.self !== window.top;
     const content      = document.getElementById('content');
 
