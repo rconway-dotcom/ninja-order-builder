@@ -1,68 +1,55 @@
-// background.js — Single store (Ninja Transfers)
-// Handles Shopify OAuth tab and extracts JWT when proxy redirects to /success.
+// background.js — MV3 service worker v1.4
+// Handles multi-brand OAuth tabs.
+// Each brand gets its own auth tab.
 
-const PROXY_URL = 'https://ninja-order-builder.vercel.app';
-
-let authTabId   = null;
-let authResolve = null;
-let authReject  = null;
+let authSessions = {}; // { transfers: { tabId, resolve, reject }, patches: { ... } }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'startAuth') {
-    startAuth(msg.proxyUrl || PROXY_URL)
+    startAuth(msg.proxyUrl, msg.brand || 'transfers')
       .then(token  => sendResponse({ ok: true,  token }))
       .catch(error => sendResponse({ ok: false, error: error.message }));
     return true;
   }
-
-  // Receive token directly from success page
-  if (msg.action === 'authComplete' && msg.token) {
-    chrome.storage.local.set({ sessionToken: msg.token }, () => {
-      if (authResolve) {
-        const resolve = authResolve;
-        cleanupAuthTab();
-        resolve(msg.token);
-      }
-      sendResponse({ ok: true });
-    });
-    return true;
-  }
-
   if (msg.action === 'signOut') {
-    chrome.storage.local.remove(['sessionToken'], () => sendResponse({ ok: true }));
+    sendResponse({ ok: true });
     return true;
   }
 });
 
-function startAuth(proxyUrl) {
+function startAuth(proxyUrl, brand) {
   return new Promise((resolve, reject) => {
-    if (authTabId !== null) {
-      chrome.tabs.update(authTabId, { active: true });
-      authResolve = resolve;
-      authReject  = reject;
+    const existing = authSessions[brand];
+    if (existing?.tabId != null) {
+      chrome.tabs.update(existing.tabId, { active: true });
+      existing.resolve = resolve;
+      existing.reject  = reject;
       return;
     }
 
-    authResolve = resolve;
-    authReject  = reject;
+    authSessions[brand] = { tabId: null, resolve, reject };
 
-    chrome.tabs.create({ url: `${proxyUrl}/api/auth/start?brand=transfers` }, tab => {
-      authTabId = tab.id;
+    // Pass brand as a query param so the proxy knows which store to auth against
+    chrome.tabs.create({ url: `${proxyUrl}/api/auth/start?brand=${brand}` }, tab => {
+      authSessions[brand].tabId = tab.id;
     });
 
     setTimeout(() => {
-      if (authResolve) {
-        cleanupAuthTab();
-        authReject(new Error('Sign-in timed out. Please try again.'));
+      if (authSessions[brand]?.reject) {
+        const rej = authSessions[brand].reject;
+        cleanupAuthTab(brand);
+        rej(new Error('Sign-in timed out. Please try again.'));
       }
     }, 5 * 60 * 1000);
   });
 }
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (tabId !== authTabId)              return;
-  if (changeInfo.status !== 'complete') return;
-  if (!tab.url)                         return;
+  if (changeInfo.status !== 'complete' || !tab.url) return;
+
+  // Find which brand this tab belongs to
+  const brand = Object.keys(authSessions).find(k => authSessions[k]?.tabId === tabId);
+  if (!brand) return;
 
   let url;
   try { url = new URL(tab.url); } catch { return; }
@@ -72,10 +59,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   const error = url.searchParams.get('error');
 
   if (token) {
-    chrome.storage.local.set({ sessionToken: token }, () => {
-      const resolve = authResolve;
-      cleanupAuthTab();
-      if (resolve) resolve(token);
+    chrome.storage.local.get(['sessions'], result => {
+      const sessions = result.sessions || {};
+      sessions[brand] = token;
+      chrome.storage.local.set({ sessions }, () => {
+        const resolve = authSessions[brand].resolve;
+        cleanupAuthTab(brand);
+        resolve(token);
+      });
     });
   } else {
     const errorMessages = {
@@ -84,24 +75,26 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       server_error: 'Server error during sign-in. Please try again.',
     };
     const msg    = errorMessages[error] || 'Sign-in failed. Please try again.';
-    const reject = authReject;
-    cleanupAuthTab();
-    if (reject) reject(new Error(msg));
+    const reject = authSessions[brand].reject;
+    cleanupAuthTab(brand);
+    reject(new Error(msg));
   }
 });
 
 chrome.tabs.onRemoved.addListener(tabId => {
-  if (tabId !== authTabId) return;
-  const reject = authReject;
-  cleanupAuthTab();
+  const brand = Object.keys(authSessions).find(k => authSessions[k]?.tabId === tabId);
+  if (!brand) return;
+  const reject = authSessions[brand].reject;
+  cleanupAuthTab(brand);
   if (reject) reject(new Error('Sign-in cancelled.'));
 });
 
-function cleanupAuthTab() {
-  if (authTabId !== null) {
-    chrome.tabs.remove(authTabId, () => {});
-    authTabId = null;
+function cleanupAuthTab(brand) {
+  const session = authSessions[brand];
+  if (!session) return;
+  if (session.tabId != null) {
+    // DEBUG: not closing tab so we can inspect console
+    // chrome.tabs.remove(session.tabId, () => {});
   }
-  authResolve = null;
-  authReject  = null;
+  delete authSessions[brand];
 }
