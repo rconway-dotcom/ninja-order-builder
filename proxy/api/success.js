@@ -96,6 +96,8 @@ export default function handler(req, res) {
         <div class="status success"><span class="spinner"></span> Please wait…</div>
       \`;
 
+      console.log('Envelope present:', !!envelope, 'Length:', envelope?.length);
+      console.log('PROXY_URL:', PROXY_URL);
       fetch(PROXY_URL + '/api/auth/exchange', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -108,11 +110,11 @@ export default function handler(req, res) {
         try {
           chrome.runtime.sendMessage(EXTENSION_ID, { action: 'authComplete', token: data.token }, () => {
             content.innerHTML = \`<p>You're signed in!</p><div class="status success">✓ Signed in — you can close this tab.</div>\`;
-            setTimeout(() => window.close(), 1500);
+            setTimeout(() => { if (!window.location.search.includes('debug')) window.close(); }, 1500);
           });
         } catch(e) {
           content.innerHTML = \`<p>You're signed in!</p><div class="status success">✓ Signed in — you can close this tab.</div>\`;
-          setTimeout(() => window.close(), 1500);
+          setTimeout(() => { if (!window.location.search.includes('debug')) window.close(); }, 1500);
         }
       })
       .catch(err => {
