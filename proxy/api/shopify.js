@@ -1,15 +1,25 @@
 // /api/shopify.js
-// All Shopify API calls from the extension flow through here.
-// 1. Validates the rep's session JWT
-// 2. Gets/refreshes the app's own CCG token
-// 3. Forwards the request to Shopify
-// 4. On draft order creation, injects rep identity as metafields
-
+// Proxies Shopify API calls — validates JWT, enforces strict allowlist of
+// permitted paths and methods so no arbitrary Admin API access is possible.
 import jwt from 'jsonwebtoken';
 
-// ─── CCG token cache (app-level, not per-user) ────────────────────────────
-// Serverless functions can be cold-started, so this is a best-effort cache.
-// The token will be re-fetched if the instance is cold or if it's expired.
+// ── Strict allowlist of permitted path patterns + methods ─────────────────
+// Only the exact operations the extension needs. Nothing else passes.
+const ALLOWED_ROUTES = [
+  // Customer search
+  { method: 'GET',  pattern: /^\/admin\/api\/[\d-]+\/customers\/search\.json(\?.*)?$/ },
+  // Create customer
+  { method: 'POST', pattern: /^\/admin\/api\/[\d-]+\/customers\.json$/ },
+  // Create draft order
+  { method: 'POST', pattern: /^\/admin\/api\/[\d-]+\/draft_orders\.json$/ },
+  // Shop info (used for settings connection test)
+  { method: 'GET',  pattern: /^\/admin\/api\/[\d-]+\/shop\.json$/ },
+];
+
+// ── Extension CORS origin ─────────────────────────────────────────────────
+const EXTENSION_ORIGIN = 'chrome-extension://bchlgmdbehoeefkppjaponkpdllolhai';
+
+// ── App token cache ───────────────────────────────────────────────────────
 let _appToken = null;
 let _appTokenExpiry = 0;
 
@@ -27,35 +37,28 @@ async function getAppToken() {
     }),
   });
 
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Failed to get app token: ${res.status} ${body}`);
-  }
-
-  const data = await res.json();
-  _appToken       = data.access_token;
+  if (!res.ok) throw new Error(`App token fetch failed: ${res.status}`);
+  const data     = await res.json();
+  _appToken      = data.access_token;
   _appTokenExpiry = Date.now() + (data.expires_in || 86400) * 1000;
   return _appToken;
 }
 
-// ─── Handler ──────────────────────────────────────────────────────────────
+// ── Handler ───────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
-  // CORS — Chrome extensions send cross-origin requests
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // Restrict CORS to extension origin only
+  res.setHeader('Access-Control-Allow-Origin', EXTENSION_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Cache-Control', 'no-store');
   if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST')   return res.status(405).json({ error: 'Method not allowed' });
 
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  // ── 1. Validate session JWT ─────────────────────────────────────────────
+  // Validate JWT
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Missing session token. Please sign in.' });
   }
-
   let rep;
   try {
     rep = jwt.verify(authHeader.slice(7), process.env.JWT_SECRET);
@@ -66,53 +69,49 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: msg, code: 'SESSION_EXPIRED' });
   }
 
-  // ── 2. Parse request ────────────────────────────────────────────────────
   const { path, method = 'GET', body } = req.body || {};
   if (!path) return res.status(400).json({ error: 'Missing path' });
 
-  // Only allow requests to the configured store
+  // ── Strict path + method allowlist ──────────────────────────────────────
+  const allowed = ALLOWED_ROUTES.some(r => r.method === method && r.pattern.test(path));
+  if (!allowed) {
+    console.warn(`Blocked disallowed route: ${method} ${path} by ${rep.email}`);
+    return res.status(403).json({ error: 'Route not permitted.' });
+  }
+
+  // ── Validate path points to our Shopify store only ──────────────────────
+  // Prevents URL tricks like @evil.example paths
   const { SHOP_DOMAIN } = process.env;
-  const targetUrl = `https://${SHOP_DOMAIN}${path}`;
+  let targetUrl;
+  try {
+    targetUrl = new URL(`https://${SHOP_DOMAIN}${path}`);
+    if (targetUrl.hostname !== SHOP_DOMAIN) {
+      return res.status(403).json({ error: 'Invalid path.' });
+    }
+  } catch {
+    return res.status(400).json({ error: 'Malformed path.' });
+  }
 
-  // ── 3. Inject rep metafields on draft order creation ────────────────────
+  // Inject rep metafields on draft order creation
   let requestBody = body;
-  const isDraftOrderCreate = method === 'POST' && path.includes('/draft_orders') && body?.draft_order;
-
-  if (isDraftOrderCreate) {
+  if (method === 'POST' && path.includes('/draft_orders') && body?.draft_order) {
     requestBody = {
       ...body,
       draft_order: {
         ...body.draft_order,
         metafields: [
           ...(body.draft_order.metafields || []),
-          {
-            namespace: 'ninja_order_builder',
-            key:       'rep_email',
-            value:     rep.email,
-            type:      'single_line_text_field',
-          },
-          {
-            namespace: 'ninja_order_builder',
-            key:       'rep_name',
-            value:     `${rep.firstName} ${rep.lastName}`.trim(),
-            type:      'single_line_text_field',
-          },
-          {
-            namespace: 'ninja_order_builder',
-            key:       'built_at',
-            value:     new Date().toISOString(),
-            type:      'single_line_text_field',
-          },
+          { namespace: 'ninja_order_builder', key: 'rep_email',  value: rep.email,                              type: 'single_line_text_field' },
+          { namespace: 'ninja_order_builder', key: 'rep_name',   value: `${rep.firstName} ${rep.lastName}`.trim(), type: 'single_line_text_field' },
+          { namespace: 'ninja_order_builder', key: 'built_at',   value: new Date().toISOString(),               type: 'single_line_text_field' },
         ],
       },
     };
   }
 
-  // ── 4. Forward to Shopify ───────────────────────────────────────────────
   try {
-    const appToken = await getAppToken();
-
-    const shopifyRes = await fetch(targetUrl, {
+    const appToken    = await getAppToken();
+    const shopifyRes  = await fetch(targetUrl.toString(), {
       method,
       headers: {
         'Content-Type':           'application/json',
@@ -120,12 +119,10 @@ export default async function handler(req, res) {
       },
       body: requestBody ? JSON.stringify(requestBody) : undefined,
     });
-
     const data = await shopifyRes.json();
     return res.status(shopifyRes.status).json(data);
-
   } catch (err) {
-    console.error('Shopify proxy error:', err);
-    return res.status(500).json({ error: `Proxy error: ${err.message}` });
+    console.error('Shopify proxy error:', err.message);
+    return res.status(500).json({ error: 'Proxy error.' });
   }
 }

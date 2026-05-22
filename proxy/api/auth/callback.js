@@ -1,29 +1,33 @@
 // /api/auth/callback.js
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
 export default async function handler(req, res) {
-  const { code, shop, error } = req.query;
+  const { code, shop, error, state: returnedState } = req.query;
   const { SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET, SHOP_DOMAIN, JWT_SECRET, PROXY_URL } = process.env;
 
-  console.log('Callback hit:', { shop, hasCode: !!code, error, SHOP_DOMAIN, hasClientId: !!SHOPIFY_CLIENT_ID });
+  // No-store to prevent any caching of this sensitive endpoint
+  res.setHeader('Cache-Control', 'no-store');
 
   if (error) {
-    console.log('OAuth error:', error);
     return res.redirect(`${PROXY_URL}/success?error=${encodeURIComponent(error)}`);
   }
 
-  if (!shop || shop !== SHOP_DOMAIN) {
-    console.log('Shop mismatch:', shop, 'expected:', SHOP_DOMAIN);
-    return res.status(400).send(`Unauthorized store. Got: ${shop}, Expected: ${SHOP_DOMAIN}`);
+  // Verify signed OAuth state to prevent CSRF
+  if (!returnedState) {
+    return res.status(400).send('Missing state parameter.');
+  }
+  const [nonce, sig] = returnedState.split('.');
+  const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(nonce).digest('hex');
+  if (!crypto.timingSafeEqual(Buffer.from(sig || ''), Buffer.from(expectedSig))) {
+    return res.status(400).send('Invalid state — possible CSRF attempt.');
   }
 
+  if (!shop || shop !== SHOP_DOMAIN) {
+    return res.status(400).send('Unauthorized store.');
+  }
   if (!code) {
     return res.status(400).send('Missing authorization code.');
-  }
-
-  if (!SHOPIFY_CLIENT_ID || !SHOPIFY_CLIENT_SECRET) {
-    console.log('Missing credentials');
-    return res.status(500).send('Missing Shopify credentials in environment variables.');
   }
 
   try {
@@ -37,22 +41,21 @@ export default async function handler(req, res) {
       }),
     });
 
-    const tokenText = await tokenRes.text();
-    console.log('Token response status:', tokenRes.status, 'body:', tokenText);
-
     if (!tokenRes.ok) {
+      // Log status only — never log token response body
+      console.error('Token exchange failed:', tokenRes.status);
       return res.redirect(`${PROXY_URL}/success?error=auth_failed`);
     }
 
-    const tokenData = JSON.parse(tokenText);
+    const tokenData = await tokenRes.json();
     const { associated_user } = tokenData;
-
-    console.log('Associated user:', associated_user);
+    // NEVER log tokenData — it contains access_token
 
     if (!associated_user) {
       return res.redirect(`${PROXY_URL}/success?error=not_staff`);
     }
 
+    // Issue our own short-lived JWT — does NOT include the Shopify access token
     const sessionToken = jwt.sign(
       {
         email:     associated_user.email,
@@ -65,11 +68,17 @@ export default async function handler(req, res) {
       { expiresIn: '8h' }
     );
 
-    console.log('Success, redirecting to:', `${PROXY_URL}/success`);
-    res.redirect(`${PROXY_URL}/success?token=${encodeURIComponent(sessionToken)}`);
+    // Pass token via a one-time code stored server-side rather than in the URL.
+    // We use a signed short-lived exchange token instead of the full JWT in the URL.
+    const exchangeCode = crypto.randomBytes(24).toString('hex');
+    const exchangePayload = jwt.sign({ sessionToken, exchangeCode }, JWT_SECRET, { expiresIn: '60s' });
+
+    // Store exchange token in a secure cookie — extension picks it up via postMessage
+    res.setHeader('Set-Cookie', `exchange_token=${exchangePayload}; HttpOnly; Secure; SameSite=None; Max-Age=60; Path=/`);
+    res.redirect(`${PROXY_URL}/success?code=${exchangeCode}`);
 
   } catch (err) {
-    console.error('Auth callback error:', err);
+    console.error('Auth callback error (no token data):', err.message);
     res.redirect(`${PROXY_URL}/success?error=server_error`);
   }
 }

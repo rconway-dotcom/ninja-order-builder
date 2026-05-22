@@ -1,6 +1,9 @@
 // api/success.js
+// Post-OAuth landing page. Exchanges one-time code for session JWT
+// via postMessage to the extension — JWT never appears in URL or HTML.
 export default function handler(req, res) {
-  const { token, error } = req.query;
+  const { code, error } = req.query;
+  const PROXY_URL = process.env.PROXY_URL;
 
   const errorMessages = {
     auth_failed:  "Authentication failed. Please try again.",
@@ -10,7 +13,10 @@ export default function handler(req, res) {
 
   const errorMsg = errorMessages[error] || (error ? "Sign-in failed. Please try again." : null);
 
+  // No caching — this page may contain sensitive exchange codes
+  res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Type', 'text/html');
+
   res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -22,22 +28,13 @@ export default function handler(req, res) {
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: 'DM Sans', system-ui, sans-serif;
-      background: #F1F1F1;
-      color: #2B2B2B;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
+      background: #F1F1F1; color: #2B2B2B;
+      min-height: 100vh; display: flex;
+      align-items: center; justify-content: center; padding: 24px;
     }
     .card {
-      background: #fff;
-      border: 1px solid #E4E4E6;
-      border-radius: 16px;
-      padding: 40px 36px;
-      max-width: 440px;
-      width: 100%;
-      text-align: center;
+      background: #fff; border: 1px solid #E4E4E6; border-radius: 16px;
+      padding: 40px 36px; max-width: 440px; width: 100%; text-align: center;
       box-shadow: 0 4px 24px rgba(43,43,43,0.08);
     }
     .logo { width: 72px; height: 72px; margin: 0 auto 16px; display: block; }
@@ -59,11 +56,9 @@ export default function handler(req, res) {
     .step-text { font-size: 13px; color: #5A5B60; line-height: 1.5; }
     .step-text strong { color: #2B2B2B; font-weight: 600; }
     .download-btn {
-      display: inline-flex; align-items: center; gap: 8px;
-      margin-top: 24px; background: #019AFF; color: #fff;
-      font-family: inherit; font-size: 14px; font-weight: 700;
-      padding: 12px 24px; border-radius: 12px; text-decoration: none;
-      transition: background 150ms ease;
+      display: inline-flex; align-items: center; gap: 8px; margin-top: 24px;
+      background: #019AFF; color: #fff; font-family: inherit; font-size: 14px;
+      font-weight: 700; padding: 12px 24px; border-radius: 12px; text-decoration: none;
     }
     .download-btn:hover { background: #0089E5; }
     .download-btn svg { width: 16px; height: 16px; }
@@ -84,34 +79,47 @@ export default function handler(req, res) {
     <div id="content"></div>
   </div>
   <script>
-    const token   = ${JSON.stringify(token || null)};
+    const code     = ${JSON.stringify(code || null)};
     const errorMsg = ${JSON.stringify(errorMsg || null)};
     const EXTENSION_ID = 'bchlgmdbehoeefkppjaponkpdllolhai';
-    const isEmbedded = window.self !== window.top;
-    const content = document.getElementById('content');
+    const PROXY_URL    = ${JSON.stringify(PROXY_URL || '')};
+    const isEmbedded   = window.self !== window.top;
+    const content      = document.getElementById('content');
 
     if (errorMsg) {
+      content.innerHTML = \`<p>\${errorMsg}</p><div class="status error">✗ Sign-in failed</div>\`;
+
+    } else if (code && !isEmbedded) {
       content.innerHTML = \`
-        <p>\${errorMsg}</p>
-        <div class="status error">✗ Sign-in failed</div>
+        <p>Completing sign-in…</p>
+        <div class="status success"><span class="spinner"></span> Please wait…</div>
       \`;
-    } else if (token && !isEmbedded) {
-      content.innerHTML = \`
-        <p>You're signed in! This tab will close automatically.</p>
-        <div class="status success"><span class="spinner"></span> Completing sign-in…</div>
-      \`;
-      try {
-        chrome.runtime.sendMessage(EXTENSION_ID, { action: 'authComplete', token }, response => {
-          if (chrome.runtime.lastError) console.log('sendMessage failed:', chrome.runtime.lastError);
-          document.getElementById('content').innerHTML = \`
-            <p>You're signed in!</p>
-            <div class="status success">✓ Signed in — you can close this tab.</div>
-          \`;
+
+      // Exchange one-time code for session JWT — JWT never in URL or HTML
+      fetch(PROXY_URL + '/api/auth/exchange', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (!data.token) throw new Error('No token in exchange response');
+        // Send token to extension via chrome.runtime.sendMessage
+        try {
+          chrome.runtime.sendMessage(EXTENSION_ID, { action: 'authComplete', token: data.token }, () => {
+            content.innerHTML = \`<p>You're signed in!</p><div class="status success">✓ Signed in — you can close this tab.</div>\`;
+            setTimeout(() => window.close(), 1500);
+          });
+        } catch(e) {
+          content.innerHTML = \`<p>You're signed in!</p><div class="status success">✓ Signed in — you can close this tab.</div>\`;
           setTimeout(() => window.close(), 1500);
-        });
-      } catch(e) {
-        setTimeout(() => window.close(), 2000);
-      }
+        }
+      })
+      .catch(err => {
+        content.innerHTML = \`<p>Sign-in failed. Please try again.</p><div class="status error">✗ \${err.message}</div>\`;
+      });
+
     } else {
       content.innerHTML = \`
         <p>Use the <strong>Chrome extension</strong> to build draft orders directly from your Ninja Transfers cart.</p>
@@ -119,7 +127,7 @@ export default function handler(req, res) {
         <div class="steps">
           <div class="step"><div class="step-num">1</div><div class="step-text">Download and install the extension below.</div></div>
           <div class="step"><div class="step-num">2</div><div class="step-text">Build your cart on <strong>ninjatransfers.com</strong> with the right products and artwork.</div></div>
-          <div class="step"><div class="step-num">3</div><div class="step-text">Click the <strong>Ninja Order Builder</strong> icon in your Chrome toolbar, sign in, and create a draft order.</div></div>
+          <div class="step"><div class="step-num">3</div><div class="step-text">Click the <strong>Ninja Order Builder</strong> icon in your toolbar, sign in, and create a draft order.</div></div>
           <div class="step"><div class="step-num">4</div><div class="step-text">Open the draft order here in Shopify and <strong>send the invoice</strong>.</div></div>
         </div>
         <a class="download-btn" href="https://github.com/rconway-dotcom/ninja-order-builder/raw/main/shuriken.zip" download>
