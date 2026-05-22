@@ -5,7 +5,7 @@ import crypto from 'crypto';
 export default async function handler(req, res) {
   const { code, shop, error, state: returnedState } = req.query;
   const { SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET, SHOP_DOMAIN, JWT_SECRET, PROXY_URL } = process.env;
-  const { UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN } = process.env;
+  const { UPSTASH_REDIS_KV_REST_API_URL, UPSTASH_REDIS_KV_REST_API_TOKEN } = process.env;
 
   res.setHeader('Cache-Control', 'no-store');
 
@@ -64,8 +64,8 @@ export default async function handler(req, res) {
     // Store session token in Upstash Redis with 60s TTL
     // keyed by a random one-time code — token never touches a URL
     const exchangeCode = crypto.randomBytes(24).toString('hex');
-    await fetch(`${UPSTASH_REDIS_REST_URL}/set/auth:${exchangeCode}/${encodeURIComponent(sessionToken)}?ex=60`, {
-      headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` },
+    await fetch(`${UPSTASH_REDIS_KV_REST_API_URL}/set/auth:${exchangeCode}/${encodeURIComponent(sessionToken)}?ex=60`, {
+      headers: { Authorization: `Bearer ${UPSTASH_REDIS_KV_REST_API_TOKEN}` },
     });
 
     res.redirect(`${PROXY_URL}/success?code=${exchangeCode}`);

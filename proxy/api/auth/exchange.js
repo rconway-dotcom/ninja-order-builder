@@ -17,12 +17,12 @@ export default async function handler(req, res) {
   const { code } = req.body || {};
   if (!code) return res.status(400).json({ error: 'Missing code' });
 
-  const { UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN } = process.env;
+  const { UPSTASH_REDIS_KV_REST_API_URL, UPSTASH_REDIS_KV_REST_API_TOKEN } = process.env;
 
   try {
     // GET and DELETE atomically using GETDEL
-    const r = await fetch(`${UPSTASH_REDIS_REST_URL}/getdel/auth:${code}`, {
-      headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` },
+    const r = await fetch(`${UPSTASH_REDIS_KV_REST_API_URL}/getdel/auth:${code}`, {
+      headers: { Authorization: `Bearer ${UPSTASH_REDIS_KV_REST_API_TOKEN}` },
     });
 
     const data = await r.json();
