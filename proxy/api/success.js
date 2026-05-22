@@ -86,36 +86,13 @@ export default function handler(req, res) {
       content.innerHTML = \`<p>\${errorMsg}</p><div class="status error">✗ Sign-in failed</div>\`;
 
     } else if (code && !isEmbedded) {
+      // Background worker detects this URL and calls the exchange endpoint itself.
+      // Just show a friendly message — worker handles the token retrieval.
       content.innerHTML = \`
-        <p>Completing sign-in…</p>
-        <div class="status success"><span class="spinner"></span> Please wait…</div>
+        <p>You're signed in! This tab will close automatically.</p>
+        <div class="status success"><span class="spinner"></span> Completing sign-in…</div>
       \`;
-
-      // Exchange one-time code for session JWT via secure server-side lookup
-      fetch(PROXY_URL + '/api/auth/exchange', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code }),
-      })
-      .then(r => r.json())
-      .then(data => {
-        if (!data.token) throw new Error(data.error || 'No token returned');
-
-        // Send token to extension via chrome.runtime.sendMessage
-        try {
-          chrome.runtime.sendMessage(EXTENSION_ID, { action: 'authComplete', token: data.token }, () => {
-            content.innerHTML = \`<p>You're signed in!</p><div class="status success">✓ Signed in — you can close this tab.</div>\`;
-            setTimeout(() => window.close(), 1500);
-          });
-        } catch(e) {
-          // Fallback — background worker should catch URL navigation anyway
-          content.innerHTML = \`<p>You're signed in!</p><div class="status success">✓ Signed in — you can close this tab.</div>\`;
-          setTimeout(() => window.close(), 1500);
-        }
-      })
-      .catch(err => {
-        content.innerHTML = \`<p>Sign-in failed: \${err.message}</p><div class="status error">✗ Please try again</div>\`;
-      });
+      setTimeout(() => window.close(), 4000);
 
     } else {
       content.innerHTML = \`
