@@ -11,6 +11,7 @@ export default function handler(req, res) {
     server_error: "Something went wrong. Please try again.",
   };
 
+  const { envelope } = req.query;
   const errorMsg = errorMessages[error] || (error ? "Sign-in failed. Please try again." : null);
 
   // No caching — this page may contain sensitive exchange codes
@@ -79,7 +80,7 @@ export default function handler(req, res) {
     <div id="content"></div>
   </div>
   <script>
-    const code     = ${JSON.stringify(code || null)};
+    const envelope = ${JSON.stringify(envelope || null)};
     const errorMsg = ${JSON.stringify(errorMsg || null)};
     const EXTENSION_ID = 'bchlgmdbehoeefkppjaponkpdllolhai';
     const PROXY_URL    = ${JSON.stringify(PROXY_URL || '')};
@@ -89,18 +90,16 @@ export default function handler(req, res) {
     if (errorMsg) {
       content.innerHTML = \`<p>\${errorMsg}</p><div class="status error">✗ Sign-in failed</div>\`;
 
-    } else if (code && !isEmbedded) {
+    } else if (envelope && !isEmbedded) {
       content.innerHTML = \`
         <p>Completing sign-in…</p>
         <div class="status success"><span class="spinner"></span> Please wait…</div>
       \`;
 
-      // Exchange one-time code for session JWT — JWT never in URL or HTML
       fetch(PROXY_URL + '/api/auth/exchange', {
         method: 'POST',
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ envelope }),
       })
       .then(r => r.json())
       .then(data => {

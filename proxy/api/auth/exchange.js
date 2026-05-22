@@ -1,9 +1,8 @@
 // /api/auth/exchange.js
-// One-time code exchange — retrieves session JWT from in-memory store.
-// Must run on the same Vercel instance as callback.js.
-// Vercel routes all /api/auth/* to the same function bundle, so this works.
+// Unwraps the signed envelope containing the session JWT.
+// No shared state needed — envelope is self-contained and expires in 60s.
 
-import { exchangeStore } from './callback.js';
+import jwt from 'jsonwebtoken';
 
 const EXTENSION_ORIGIN = 'chrome-extension://bchlgmdbehoeefkppjaponkpdllolhai';
 
@@ -17,17 +16,15 @@ export default function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST')   return res.status(405).end();
 
-  const { code } = req.body || {};
-  if (!code) return res.status(400).json({ error: 'Missing code' });
+  const { envelope } = req.body || {};
+  if (!envelope) return res.status(400).json({ error: 'Missing envelope' });
 
-  const entry = exchangeStore.get(code);
-  if (!entry) return res.status(401).json({ error: 'Invalid or expired code' });
-  if (Date.now() > entry.expiry) {
-    exchangeStore.delete(code);
-    return res.status(401).json({ error: 'Code expired' });
+  try {
+    const payload = jwt.verify(envelope, process.env.JWT_SECRET);
+    if (!payload.sessionToken) return res.status(400).json({ error: 'Invalid envelope' });
+    return res.status(200).json({ token: payload.sessionToken });
+  } catch (err) {
+    const msg = err.name === 'TokenExpiredError' ? 'Envelope expired' : 'Invalid envelope';
+    return res.status(401).json({ error: msg });
   }
-
-  // One-time use — delete immediately after retrieval
-  exchangeStore.delete(code);
-  return res.status(200).json({ token: entry.sessionToken });
 }
