@@ -13,16 +13,34 @@ export default async function handler(req, res) {
     return res.redirect(`${PROXY_URL}/success?error=${encodeURIComponent(error)}`);
   }
 
-  // Verify signed OAuth state
+  // Verify OAuth state — two checks:
+  // 1. HMAC signature proves the state was issued by us
+  // 2. Cookie comparison proves this browser started this flow (CSRF protection)
   if (!returnedState) return res.status(400).send('Missing state.');
   const [nonce, sig] = returnedState.split('.');
   if (!nonce || !sig) return res.status(400).send('Malformed state.');
+
+  // Check HMAC signature
   const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(nonce).digest('hex');
   try {
     if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) {
-      return res.status(400).send('Invalid state.');
+      return res.status(400).send('Invalid state signature.');
     }
   } catch { return res.status(400).send('Invalid state.'); }
+
+  // Check cookie matches exactly (CSRF protection)
+  const cookieHeader = req.headers.cookie || '';
+  const cookieMatch  = cookieHeader.match(/oauth_state=([^;]+)/);
+  const cookieState  = cookieMatch ? decodeURIComponent(cookieMatch[1]) : null;
+  if (!cookieState) return res.status(400).send('Missing state cookie — possible CSRF.');
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(cookieState), Buffer.from(returnedState))) {
+      return res.status(400).send('State mismatch — possible CSRF attempt.');
+    }
+  } catch { return res.status(400).send('State mismatch.'); }
+
+  // Clear the cookie immediately after use
+  res.setHeader('Set-Cookie', 'oauth_state=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/');
 
   if (!shop || shop !== SHOP_DOMAIN) return res.status(400).send('Unauthorized store.');
   if (!code) return res.status(400).send('Missing code.');
