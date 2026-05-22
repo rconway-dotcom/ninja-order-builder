@@ -1,6 +1,4 @@
 // api/success.js
-// Post-OAuth landing page. Exchanges one-time code for session JWT
-// via postMessage to the extension — JWT never appears in URL or HTML.
 export default function handler(req, res) {
   const { code, error } = req.query;
   const PROXY_URL = process.env.PROXY_URL;
@@ -10,11 +8,8 @@ export default function handler(req, res) {
     not_staff:    "Your account doesn't have staff access to this store.",
     server_error: "Something went wrong. Please try again.",
   };
-
-  const { envelope } = req.query;
   const errorMsg = errorMessages[error] || (error ? "Sign-in failed. Please try again." : null);
 
-  // No caching — this page may contain sensitive exchange codes
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Type', 'text/html');
 
@@ -80,45 +75,46 @@ export default function handler(req, res) {
     <div id="content"></div>
   </div>
   <script>
-    const envelope = ${JSON.stringify(envelope || null)};
-    const errorMsg = ${JSON.stringify(errorMsg || null)};
+    const code      = ${JSON.stringify(code || null)};
+    const errorMsg  = ${JSON.stringify(errorMsg || null)};
+    const PROXY_URL = ${JSON.stringify(PROXY_URL || '')};
     const EXTENSION_ID = 'bchlgmdbehoeefkppjaponkpdllolhai';
-    const PROXY_URL    = ${JSON.stringify(PROXY_URL || '')};
     const isEmbedded   = window.self !== window.top;
     const content      = document.getElementById('content');
 
     if (errorMsg) {
       content.innerHTML = \`<p>\${errorMsg}</p><div class="status error">✗ Sign-in failed</div>\`;
 
-    } else if (envelope && !isEmbedded) {
+    } else if (code && !isEmbedded) {
       content.innerHTML = \`
         <p>Completing sign-in…</p>
         <div class="status success"><span class="spinner"></span> Please wait…</div>
       \`;
 
-      console.log('Envelope present:', !!envelope, 'Length:', envelope?.length);
-      console.log('PROXY_URL:', PROXY_URL);
+      // Exchange one-time code for session JWT via secure server-side lookup
       fetch(PROXY_URL + '/api/auth/exchange', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ envelope }),
+        body: JSON.stringify({ code }),
       })
       .then(r => r.json())
       .then(data => {
-        if (!data.token) throw new Error('No token in exchange response');
+        if (!data.token) throw new Error(data.error || 'No token returned');
+
         // Send token to extension via chrome.runtime.sendMessage
         try {
           chrome.runtime.sendMessage(EXTENSION_ID, { action: 'authComplete', token: data.token }, () => {
             content.innerHTML = \`<p>You're signed in!</p><div class="status success">✓ Signed in — you can close this tab.</div>\`;
-            setTimeout(() => { if (!window.location.search.includes('debug')) window.close(); }, 1500);
+            setTimeout(() => window.close(), 1500);
           });
         } catch(e) {
+          // Fallback — background worker should catch URL navigation anyway
           content.innerHTML = \`<p>You're signed in!</p><div class="status success">✓ Signed in — you can close this tab.</div>\`;
-          setTimeout(() => { if (!window.location.search.includes('debug')) window.close(); }, 1500);
+          setTimeout(() => window.close(), 1500);
         }
       })
       .catch(err => {
-        content.innerHTML = \`<p>Sign-in failed. Please try again.</p><div class="status error">✗ \${err.message}</div>\`;
+        content.innerHTML = \`<p>Sign-in failed: \${err.message}</p><div class="status error">✗ Please try again</div>\`;
       });
 
     } else {

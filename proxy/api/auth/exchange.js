@@ -1,12 +1,10 @@
 // /api/auth/exchange.js
-// Unwraps the signed envelope containing the session JWT.
-// No shared state needed — envelope is self-contained and expires in 60s.
-
-import jwt from 'jsonwebtoken';
+// Retrieves and deletes the session token from Upstash Redis.
+// One-time use — code is deleted immediately after retrieval.
 
 const EXTENSION_ORIGIN = 'chrome-extension://bchlgmdbehoeefkppjaponkpdllolhai';
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Access-Control-Allow-Origin', EXTENSION_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -16,15 +14,25 @@ export default function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST')   return res.status(405).end();
 
-  const { envelope } = req.body || {};
-  if (!envelope) return res.status(400).json({ error: 'Missing envelope' });
+  const { code } = req.body || {};
+  if (!code) return res.status(400).json({ error: 'Missing code' });
+
+  const { UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN } = process.env;
 
   try {
-    const payload = jwt.verify(envelope, process.env.JWT_SECRET);
-    if (!payload.sessionToken) return res.status(400).json({ error: 'Invalid envelope' });
-    return res.status(200).json({ token: payload.sessionToken });
+    // GET and DELETE atomically using GETDEL
+    const r = await fetch(`${UPSTASH_REDIS_REST_URL}/getdel/auth:${code}`, {
+      headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` },
+    });
+
+    const data = await r.json();
+    const token = data.result ? decodeURIComponent(data.result) : null;
+
+    if (!token) return res.status(401).json({ error: 'Invalid or expired code' });
+    return res.status(200).json({ token });
+
   } catch (err) {
-    const msg = err.name === 'TokenExpiredError' ? 'Envelope expired' : 'Invalid envelope';
-    return res.status(401).json({ error: msg });
+    console.error('Exchange error:', err.message);
+    return res.status(500).json({ error: 'Exchange failed' });
   }
 }
